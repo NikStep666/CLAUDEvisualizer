@@ -17,6 +17,7 @@ let contentBuffer = "";
 let lastFormat: "markdown" | "html" | "terminal" = "markdown";
 let lastTitle = "";
 const edgeCache: ConnectMessage[] = [];
+const panelCache: RenderMessage[] = []; // all panel messages for reconnect
 
 import * as db from "./db.ts";
 
@@ -63,6 +64,12 @@ export type WsMessage = RenderMessage | ClearMessage | ConnectMessage | SaveBoar
 
 export function publish(message: WsMessage) {
   if (message.type === "render") {
+    if (message.panel) {
+      // Panel mode: cache each panel separately (replace if same ID)
+      const idx = panelCache.findIndex(p => p.panel === message.panel);
+      if (idx >= 0) panelCache[idx] = message;
+      else panelCache.push(message);
+    }
     if (message.append) {
       contentBuffer += "\n" + message.content;
     } else {
@@ -75,6 +82,7 @@ export function publish(message: WsMessage) {
     lastTitle = "";
     lastFormat = "markdown";
     edgeCache.length = 0;
+    panelCache.length = 0;
   } else if (message.type === "connect") {
     const id = message.id || `${message.from}-${message.to}`;
     // Replace existing edge with same id
@@ -122,7 +130,13 @@ const server = Bun.serve<{}>({
   websocket: {
     open(ws: ServerWebSocket<{}>) {
       ws.subscribe("viz");
-      if (contentBuffer) {
+      if (panelCache.length > 0) {
+        // Replay all panels (Board mode)
+        for (const panel of panelCache) {
+          ws.send(JSON.stringify(panel));
+        }
+      } else if (contentBuffer) {
+        // Fallback: single content (Scroll mode, no panel IDs)
         ws.send(
           JSON.stringify({
             type: "render",
