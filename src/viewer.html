@@ -276,10 +276,13 @@
 
     .panel-body {
       padding: 22px;
+      overflow: visible;
+      line-height: 1.65;
+    }
+    .panel.resized .panel-body {
       overflow: auto;
       flex: 1;
       min-height: 0;
-      line-height: 1.65;
     }
 
     /* Resize handles */
@@ -706,11 +709,9 @@
       // Collect bounding boxes of existing panels
       const boxes = [];
       for (const [, p] of panels) {
-        const rect = p.el.getBoundingClientRect();
-        // Use actual rendered size, fall back to stored position
-        const w = rect.width / scale || 700;
-        const h = rect.height / scale || 400;
-        boxes.push({ x: p.x, y: p.y, w, h });
+        const w = p.el.offsetWidth || 700;
+        const h = p.el.offsetHeight || 300;
+        boxes.push({ x: parseInt(p.el.style.left) || p.x, y: parseInt(p.el.style.top) || p.y, w, h });
       }
 
       // Try placing to the right of the rightmost panel in the top row first
@@ -765,8 +766,6 @@
       el.style.left = pos.x + 'px';
       el.style.top = pos.y + 'px';
       el.style.width = panelWidth + 'px';
-
-      el.style.height = '450px';
 
       el.innerHTML = `
         <div class="panel-header">
@@ -824,6 +823,7 @@
           const isS = handle.classList.contains('resize-handle-s') || handle.classList.contains('resize-handle-se');
 
           const onMove = (ev) => {
+            el.classList.add('resized');
             if (isE) {
               const newW = Math.max(280, startW + (ev.clientX - startX) / scale);
               el.style.width = newW + 'px';
@@ -1151,6 +1151,9 @@
       }
 
       focusPanel(pid);
+
+      // Re-render edges after content changes panel height
+      if (edges.size > 0) setTimeout(renderEdges, 50);
     }
 
     // ===== RENDER: HTML =====
