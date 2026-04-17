@@ -1,0 +1,10 @@
+{
+  "name": "claude-visualizer",
+  "version": "1.0.0",
+  "description": "MCP server that renders HTML/visualizations in a browser window",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.0"
+  }
+}

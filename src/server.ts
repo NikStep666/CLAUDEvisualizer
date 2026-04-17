@@ -1,0 +1,117 @@
+import type { ServerWebSocket } from "bun";
+import { join } from "path";
+
+const PORT = parseInt(process.env.VISUALIZER_PORT || "7331");
+
+let browserOpened = false;
+let contentBuffer = "";
+let lastFormat: "markdown" | "html" | "terminal" = "markdown";
+let lastTitle = "";
+const edgeCache: ConnectMessage[] = [];
+
+const viewerHtml = await Bun.file(join(import.meta.dir, "viewer.html")).text();
+
+export type RenderMessage = {
+  type: "render";
+  content: string;
+  format: "markdown" | "html" | "terminal";
+  title?: string;
+  append?: boolean;
+  panel?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+};
+
+export type ClearMessage = {
+  type: "clear";
+};
+
+export type ConnectMessage = {
+  type: "connect";
+  from: string;
+  to: string;
+  label?: string;
+  color?: string;
+  id?: string;
+};
+
+export type WsMessage = RenderMessage | ClearMessage | ConnectMessage;
+
+export function publish(message: WsMessage) {
+  if (message.type === "render") {
+    if (message.append) {
+      contentBuffer += "\n" + message.content;
+    } else {
+      contentBuffer = message.content;
+    }
+    lastFormat = message.format;
+    if (message.title) lastTitle = message.title;
+  } else if (message.type === "clear") {
+    contentBuffer = "";
+    lastTitle = "";
+    lastFormat = "markdown";
+    edgeCache.length = 0;
+  } else if (message.type === "connect") {
+    const id = message.id || `${message.from}-${message.to}`;
+    // Replace existing edge with same id
+    const idx = edgeCache.findIndex(e => (e.id || `${e.from}-${e.to}`) === id);
+    if (idx >= 0) edgeCache[idx] = message;
+    else edgeCache.push(message);
+  }
+
+  const payload = JSON.stringify(message);
+  server.publish("viz", payload);
+}
+
+export function openBrowser() {
+  if (browserOpened) return;
+  browserOpened = true;
+  Bun.spawn(["xdg-open", `http://localhost:${PORT}`], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+}
+
+const server = Bun.serve<{}>({
+  port: PORT,
+
+  fetch(req, server) {
+    const url = new URL(req.url);
+
+    if (url.pathname === "/ws") {
+      if (server.upgrade(req)) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
+    return new Response(viewerHtml, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  },
+
+  websocket: {
+    open(ws: ServerWebSocket<{}>) {
+      ws.subscribe("viz");
+      if (contentBuffer) {
+        ws.send(
+          JSON.stringify({
+            type: "render",
+            content: contentBuffer,
+            format: lastFormat,
+            title: lastTitle || undefined,
+            append: false,
+          })
+        );
+      }
+      for (const edge of edgeCache) {
+        ws.send(JSON.stringify(edge));
+      }
+    },
+    close(ws: ServerWebSocket<{}>) {
+      ws.unsubscribe("viz");
+    },
+    message() {},
+  },
+});
+
+console.error(`[visualizer] listening on http://localhost:${PORT}`);

@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Visualizer</title>
+
+  <!-- KaTeX -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+
+  <!-- highlight.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+
+  <!-- marked.js -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
+
+  <!-- Plotly -->
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@3.5.0/plotly.min.js"></script>
+
+  <!-- D3 -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+
+  <!-- Google Fonts: JetBrains Mono for tech, Inter for body -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #06090f;
+      --bg-surface: #0c1018;
+      --bg-code: #0a0f18;
+      --bg-panel: #080d15;
+      --fg: #c8d3e0;
+      --fg-muted: #5a6a7e;
+      --fg-dim: #3a4a5e;
+      --fg-accent: #00d4ff;
+      --fg-accent-dim: rgba(0,212,255,0.15);
+      --fg-warm: #e8a830;
+      --fg-warm-dim: rgba(232,168,48,0.12);
+      --border: #152030;
+      --border-accent: rgba(0,212,255,0.25);
+      --border-focus: rgba(0,212,255,0.6);
+      --green: #00e68a;
+      --red: #ff4060;
+      --yellow: #e8a830;
+      --radius: 4px;
+      --shadow: 0 4px 32px rgba(0,0,0,0.6);
+      --glow: 0 0 12px rgba(0,212,255,0.08);
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    html, body { height: 100%; font-size: 15px; overflow: hidden; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.65;
+    }
+
+    /* Subtle scan-line texture */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,212,255,0.008) 2px,
+        rgba(0,212,255,0.008) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+    /* ===== TOOLBAR ===== */
+    #toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 38px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 10px;
+      z-index: 1000;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    #toolbar .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--red);
+      flex-shrink: 0;
+      box-shadow: 0 0 6px var(--red);
+      transition: all 0.3s;
+    }
+    #toolbar .status-dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 8px rgba(0,230,138,0.4);
+    }
+
+    #toolbar .title {
+      color: var(--fg-muted);
+      font-weight: 400;
+      margin-right: auto;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.04em;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1px;
+    }
+
+    .toolbar-btn {
+      background: none;
+      border: none;
+      color: var(--fg-dim);
+      padding: 3px 10px;
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      letter-spacing: 0.03em;
+      transition: all 0.15s;
+    }
+    .toolbar-btn:hover { color: var(--fg-accent); background: var(--fg-accent-dim); }
+    .toolbar-btn.active { color: var(--fg-accent); background: var(--fg-accent-dim); }
+
+    .zoom-display {
+      color: var(--fg-dim);
+      font-size: 0.68rem;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      min-width: 42px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .zoom-display:hover { color: var(--fg-accent); }
+
+    /* ===== SCROLL MODE ===== */
+    #scroll-viewport {
+      position: absolute;
+      top: 38px; left: 0; right: 0; bottom: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    #scroll-content {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 40px 28px;
+    }
+
+    /* ===== BOARD MODE ===== */
+    #board-viewport {
+      position: absolute;
+      top: 38px; left: 0; right: 0; bottom: 0;
+      overflow: hidden;
+      cursor: grab;
+    }
+    #board-viewport.panning { cursor: grabbing; }
+
+    #board-canvas {
+      position: absolute;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    /* Blueprint grid for board */
+    #board-viewport::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.25;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ===== PANELS ===== */
+    .panel {
+      position: absolute;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow), var(--glow);
+      min-width: 280px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      z-index: 1;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .panel.focused {
+      border-color: var(--border-focus);
+      box-shadow: var(--shadow), 0 0 20px rgba(0,212,255,0.12);
+      z-index: 10;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      padding: 7px 12px;
+      background: linear-gradient(180deg, rgba(0,212,255,0.04) 0%, transparent 100%);
+      border-bottom: 1px solid var(--border-accent);
+      border-radius: var(--radius) var(--radius) 0 0;
+      cursor: grab;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      user-select: none;
+    }
+    .panel-header.dragging { cursor: grabbing; }
+
+    .panel-header .panel-title {
+      font-weight: 600;
+      color: var(--fg-accent);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.03em;
+    }
+
+    .panel-header .panel-badge {
+      font-size: 0.6rem;
+      color: var(--fg-dim);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 2px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .panel-header .panel-close {
+      background: none;
+      border: none;
+      color: var(--fg-dim);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0 4px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .panel-header .panel-close:hover { color: var(--red); }
+
+    .panel-body {
+      padding: 22px;
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
+      line-height: 1.65;
+    }
+
+    /* Resize handles */
+    .panel .resize-handle {
+      position: absolute;
+      z-index: 20;
+    }
+    .panel .resize-handle-se {
+      right: 0; bottom: 0;
+      width: 18px; height: 18px;
+      cursor: nwse-resize;
+    }
+    .panel .resize-handle-se::after {
+      content: '';
+      position: absolute;
+      right: 3px; bottom: 3px;
+      width: 8px; height: 8px;
+      border-right: 2px solid var(--fg-dim);
+      border-bottom: 2px solid var(--fg-dim);
+      transition: border-color 0.15s;
+    }
+    .panel.focused .resize-handle-se::after {
+      border-color: var(--fg-accent);
+    }
+    .panel .resize-handle-e {
+      right: -3px; top: 30px; bottom: 18px;
+      width: 6px;
+      cursor: ew-resize;
+    }
+    .panel .resize-handle-s {
+      bottom: -3px; left: 12px; right: 18px;
+      height: 6px;
+      cursor: ns-resize;
+    }
+
+    /* ===== TERMINAL PANEL ===== */
+    .panel.terminal-panel .panel-body {
+      background: #040608;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.55;
+      padding: 16px;
+      color: #b0bec5;
+    }
+
+    .term-line { white-space: pre-wrap; word-break: break-all; }
+    .term-cmd { color: var(--fg-accent); }
+    .term-cmd::before { content: '$ '; color: var(--fg-dim); }
+    .term-output { color: #b0bec5; }
+    .term-error { color: var(--red); }
+    .term-info { color: var(--fg-accent); }
+    .term-success { color: var(--green); }
+    .term-dim { color: #2a3a4e; }
+
+    /* ===== SHARED CONTENT STYLES ===== */
+    .rendered-content h1, .rendered-content h2, .rendered-content h3,
+    .rendered-content h4, .rendered-content h5, .rendered-content h6 {
+      font-family: var(--font-mono);
+      margin-top: 1.6em;
+      margin-bottom: 0.5em;
+      font-weight: 600;
+      line-height: 1.3;
+      color: var(--fg);
+      letter-spacing: 0.01em;
+    }
+    .rendered-content h1 {
+      font-size: 1.5rem;
+      color: var(--fg-accent);
+      border-bottom: 1px solid var(--border-accent);
+      padding-bottom: 0.4em;
+    }
+    .rendered-content h2 {
+      font-size: 1.2rem;
+      color: var(--fg);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.3em;
+    }
+    .rendered-content h3 { font-size: 1.05rem; color: var(--fg-warm); }
+    .rendered-content h1:first-child, .rendered-content h2:first-child, .rendered-content h3:first-child { margin-top: 0; }
+
+    .rendered-content p { margin: 0.8em 0; }
+    .rendered-content a { color: var(--fg-accent); text-decoration: none; border-bottom: 1px solid var(--fg-accent-dim); }
+    .rendered-content a:hover { border-bottom-color: var(--fg-accent); }
+    .rendered-content ul, .rendered-content ol { margin: 0.8em 0; padding-left: 1.8em; }
+    .rendered-content li { margin: 0.3em 0; }
+    .rendered-content li::marker { color: var(--fg-dim); }
+
+    .rendered-content blockquote {
+      border-left: 2px solid var(--fg-accent);
+      padding: 0.6em 1em;
+      margin: 1.2em 0;
+      color: var(--fg-muted);
+      background: var(--fg-accent-dim);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: 0.95rem;
+    }
+
+    .rendered-content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2em 0;
+      position: relative;
+    }
+    .rendered-content hr::after {
+      content: '//';
+      position: absolute;
+      top: -0.6em;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg);
+      padding: 0 8px;
+      color: var(--fg-dim);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+    }
+
+    .rendered-content pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border-accent);
+      border-left: 3px solid var(--fg-accent);
+      border-radius: var(--radius);
+      padding: 16px;
+      overflow-x: auto;
+      margin: 1.2em 0;
+      font-size: 0.85rem;
+      line-height: 1.55;
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.2);
+    }
+    .rendered-content pre code { background: none; padding: 0; border: none; font-size: inherit; color: var(--fg); }
+    .rendered-content code {
+      background: var(--fg-accent-dim);
+      padding: 0.15em 0.45em;
+      border-radius: 3px;
+      font-size: 0.88em;
+      font-family: var(--font-mono);
+      color: var(--fg-accent);
+    }
+
+    .rendered-content table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1.2em 0;
+      font-size: 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+    .rendered-content th {
+      text-align: left;
+      padding: 8px 12px;
+      background: var(--fg-accent-dim);
+      border: 1px solid var(--border-accent);
+      font-weight: 600;
+      color: var(--fg-accent);
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+    }
+    .rendered-content td {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      color: var(--fg);
+    }
+    .rendered-content tr:nth-child(even) { background: rgba(0,212,255,0.02); }
+
+    .rendered-content img { max-width: 100%; border-radius: var(--radius); margin: 1em 0; }
+
+    /* KaTeX — cyan-tinted math */
+    .katex-display {
+      margin: 1.2em 0;
+      overflow-x: auto;
+      padding: 16px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .katex { color: var(--fg) !important; }
+
+    /* Mermaid diagrams — blueprint frame */
+    .mermaid-container {
+      background: rgba(0,212,255,0.03);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin: 1.2em 0;
+      text-align: center;
+      overflow-x: auto;
+      position: relative;
+    }
+    .mermaid-container::before {
+      content: 'DIAGRAM';
+      position: absolute;
+      top: 6px;
+      right: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.55rem;
+      color: var(--fg-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .js-plotly-plot { margin: 1em 0; }
+
+    /* ===== PLACEHOLDER ===== */
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      color: var(--fg-dim);
+      gap: 16px;
+      font-family: var(--font-mono);
+    }
+    .placeholder .logo {
+      font-size: 2rem;
+      color: var(--fg-accent);
+      opacity: 0.3;
+      text-shadow: 0 0 20px rgba(0,212,255,0.2);
+    }
+    .placeholder .text {
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ===== EDGES / CONNECTIONS ===== */
+    #edges-svg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 10000px;
+      height: 10000px;
+      pointer-events: none;
+      z-index: 0;
+      overflow: visible;
+    }
+    #edges-svg path {
+      fill: none;
+      stroke: var(--fg-accent);
+      stroke-width: 2;
+      opacity: 0.7;
+      filter: drop-shadow(0 0 4px rgba(0,212,255,0.3));
+    }
+    #edges-svg text {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      fill: var(--fg-accent);
+      opacity: 0.9;
+      font-weight: 500;
+    }
+    #edges-svg .edge-label-bg {
+      fill: var(--bg);
+      stroke: var(--border-accent);
+      stroke-width: 1;
+      opacity: 0.92;
+      rx: 3;
+    }
+
+    /* ===== HIDE INACTIVE MODE ===== */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div class="status-dot" id="status"></div>
+    <span class="title" id="toolbar-title">Claude Visualizer</span>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn active" data-mode="scroll" onclick="setMode('scroll')">Scroll</button>
+      <button class="toolbar-btn" data-mode="board" onclick="setMode('board')">Board</button>
+    </div>
+
+    <div class="toolbar-group" id="zoom-controls">
+      <button class="toolbar-btn" onclick="zoomBy(-0.15)">-</button>
+      <span class="zoom-display" id="zoom-display" onclick="resetView()">100%</span>
+      <button class="toolbar-btn" onclick="zoomBy(0.15)">+</button>
+      <button class="toolbar-btn" onclick="resetView()">Fit</button>
+    </div>
+  </div>
+
+  <!-- Scroll Mode -->
+  <div id="scroll-viewport">
+    <div id="scroll-content" class="rendered-content">
+      <div class="placeholder">
+        <div class="logo">&#9701;</div>
+        <div class="text">awaiting signal</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Board Mode -->
+  <div id="board-viewport" class="hidden">
+    <div id="board-canvas">
+      <svg id="edges-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+
+  <!-- Mermaid (ESM) -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    window.__mermaid = mermaid;
+    window.__mermaidReady = true;
+  </script>
+
+  <script>
+    // ===== STATE =====
+    let currentMode = localStorage.getItem('viz-mode') || 'scroll';
+    let scale = 1;
+    let panX = 60;
+    let panY = 60;
+    let isPanning = false;
+    let panStartX = 0, panStartY = 0;
+    let panels = new Map(); // id -> { el, x, y, w, h }
+    let panelCounter = 0;
+    let focusedPanel = null;
+
+    // Layout state for non-overlapping placement
+    const LAYOUT_GAP = 100;
+    const LAYOUT_MAX_WIDTH = 4000;
+
+    const statusEl = document.getElementById('status');
+    const toolbarTitle = document.getElementById('toolbar-title');
+    const scrollViewport = document.getElementById('scroll-viewport');
+    const scrollContent = document.getElementById('scroll-content');
+    const boardViewport = document.getElementById('board-viewport');
+    const boardCanvas = document.getElementById('board-canvas');
+    const zoomDisplay = document.getElementById('zoom-display');
+    const zoomControls = document.getElementById('zoom-controls');
+
+    marked.setOptions({ gfm: true, breaks: false });
+
+    // ===== MODE SWITCHING =====
+    function setMode(mode) {
+      currentMode = mode;
+      localStorage.setItem('viz-mode', mode);
+      document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+      scrollViewport.classList.toggle('hidden', mode !== 'scroll');
+      boardViewport.classList.toggle('hidden', mode !== 'board');
+      zoomControls.style.opacity = mode === 'board' ? '1' : '0.4';
+    }
+    setMode(currentMode);
+
+    // ===== ZOOM / PAN =====
+    function updateTransform() {
+      boardCanvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+      zoomDisplay.textContent = Math.round(scale * 100) + '%';
+    }
+
+    function zoomBy(delta, cx, cy) {
+      const oldScale = scale;
+      scale = Math.min(Math.max(scale + delta, 0.1), 5);
+      if (cx !== undefined && cy !== undefined) {
+        panX = cx - (cx - panX) * (scale / oldScale);
+        panY = cy - (cy - panY) * (scale / oldScale);
+      }
+      updateTransform();
+    }
+
+    function resetView() {
+      scale = 1;
+      panX = 60;
+      panY = 60;
+      updateTransform();
+    }
+
+    // Board viewport: wheel to zoom, drag to pan
+    boardViewport.addEventListener('wheel', (e) => {
+      // Let panel body scroll naturally
+      if (e.target.closest('.panel-body')) return;
+      e.preventDefault();
+      const rect = boardViewport.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const delta = e.deltaY > 0 ? -0.08 : 0.08;
+      zoomBy(delta, cx, cy);
+    }, { passive: false });
+
+    boardViewport.addEventListener('mousedown', (e) => {
+      if (e.target === boardViewport || e.target === boardCanvas) {
+        isPanning = true;
+        panStartX = e.clientX - panX;
+        panStartY = e.clientY - panY;
+        boardViewport.classList.add('panning');
+        e.preventDefault();
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      panX = e.clientX - panStartX;
+      panY = e.clientY - panStartY;
+      updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isPanning = false;
+      boardViewport.classList.remove('panning');
+    });
+
+    boardViewport.addEventListener('dblclick', (e) => {
+      if (e.target === boardViewport) resetView();
+    });
+
+    // Keyboard zoom
+    window.addEventListener('keydown', (e) => {
+      if (currentMode !== 'board') return;
+      if (e.ctrlKey && e.key === '0') { e.preventDefault(); resetView(); }
+      if (e.ctrlKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); zoomBy(0.15); }
+      if (e.ctrlKey && e.key === '-') { e.preventDefault(); zoomBy(-0.15); }
+    });
+
+    updateTransform();
+
+    // ===== PANEL SYSTEM =====
+    function findOpenPosition(panelWidth) {
+      if (panels.size === 0) return { x: 0, y: 0 };
+
+      // Collect bounding boxes of existing panels
+      const boxes = [];
+      for (const [, p] of panels) {
+        const rect = p.el.getBoundingClientRect();
+        // Use actual rendered size, fall back to stored position
+        const w = rect.width / scale || 700;
+        const h = rect.height / scale || 400;
+        boxes.push({ x: p.x, y: p.y, w, h });
+      }
+
+      // Try placing to the right of the rightmost panel in the top row first
+      // Sort boxes by y then x to find rows
+      boxes.sort((a, b) => a.y - b.y || a.x - b.x);
+
+      // Find panels roughly on the same row (within 50px y-tolerance)
+      const rows = [];
+      let currentRow = [boxes[0]];
+      for (let i = 1; i < boxes.length; i++) {
+        if (Math.abs(boxes[i].y - currentRow[0].y) < 50) {
+          currentRow.push(boxes[i]);
+        } else {
+          rows.push(currentRow);
+          currentRow = [boxes[i]];
+        }
+      }
+      rows.push(currentRow);
+
+      // Try to place at the end of the last incomplete row
+      for (const row of rows) {
+        const rightmost = row.reduce((max, b) => b.x + b.w > max.x + max.w ? b : max, row[0]);
+        const candidateX = rightmost.x + rightmost.w + LAYOUT_GAP;
+        if (candidateX + panelWidth <= LAYOUT_MAX_WIDTH) {
+          // Check no overlap with any box
+          const candidateY = row[0].y;
+          const overlaps = boxes.some(b =>
+            candidateX < b.x + b.w + LAYOUT_GAP &&
+            candidateX + panelWidth > b.x - LAYOUT_GAP &&
+            candidateY < b.y + b.h + LAYOUT_GAP &&
+            candidateY + 100 > b.y - LAYOUT_GAP
+          );
+          if (!overlaps) return { x: candidateX, y: candidateY };
+        }
+      }
+
+      // No space in existing rows — start a new row below everything
+      const maxBottom = boxes.reduce((max, b) => Math.max(max, b.y + b.h), 0);
+      return { x: 0, y: maxBottom + LAYOUT_GAP };
+    }
+
+    function createPanel(id, title, format, explicitX, explicitY, explicitW) {
+      const isTerminal = format === 'terminal';
+      const el = document.createElement('div');
+      el.className = 'panel' + (isTerminal ? ' terminal-panel' : '');
+      el.id = 'panel-' + id;
+
+      const panelWidth = explicitW || (isTerminal ? 600 : 700);
+      const pos = (explicitX !== undefined && explicitY !== undefined)
+        ? { x: explicitX, y: explicitY }
+        : findOpenPosition(panelWidth);
+      el.style.left = pos.x + 'px';
+      el.style.top = pos.y + 'px';
+      el.style.width = panelWidth + 'px';
+
+      el.style.height = '450px';
+
+      el.innerHTML = `
+        <div class="panel-header">
+          <span class="panel-title">${escapeHtml(title || (isTerminal ? 'Terminal' : 'Visualizer'))}</span>
+          <span class="panel-badge">${isTerminal ? 'term' : format}</span>
+          <button class="panel-close" onclick="closePanel('${id}')">&times;</button>
+        </div>
+        <div class="panel-body ${isTerminal ? '' : 'rendered-content'}"></div>
+        <div class="resize-handle resize-handle-se"></div>
+        <div class="resize-handle resize-handle-e"></div>
+        <div class="resize-handle resize-handle-s"></div>
+      `;
+
+      // Drag header
+      const header = el.querySelector('.panel-header');
+
+      header.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('panel-close')) return;
+        focusPanel(id);
+        const dragStartX = e.clientX;
+        const dragStartY = e.clientY;
+        const startLeft = parseInt(el.style.left);
+        const startTop = parseInt(el.style.top);
+        header.classList.add('dragging');
+
+        const onMove = (ev) => {
+          el.style.left = (startLeft + (ev.clientX - dragStartX) / scale) + 'px';
+          el.style.top = (startTop + (ev.clientY - dragStartY) / scale) + 'px';
+          if (edges.size > 0) renderEdges();
+        };
+        const onUp = () => {
+          header.classList.remove('dragging');
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          const p = panels.get(id);
+          if (p) { p.x = parseInt(el.style.left); p.y = parseInt(el.style.top); }
+          if (edges.size > 0) renderEdges();
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        e.preventDefault();
+      });
+
+      // Resize handles
+      el.querySelectorAll('.resize-handle').forEach(handle => {
+        handle.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          focusPanel(id);
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const startW = el.offsetWidth;
+          const startH = el.offsetHeight;
+          const isE = handle.classList.contains('resize-handle-e') || handle.classList.contains('resize-handle-se');
+          const isS = handle.classList.contains('resize-handle-s') || handle.classList.contains('resize-handle-se');
+
+          const onMove = (ev) => {
+            if (isE) {
+              const newW = Math.max(280, startW + (ev.clientX - startX) / scale);
+              el.style.width = newW + 'px';
+            }
+            if (isS) {
+              const newH = Math.max(120, startH + (ev.clientY - startY) / scale);
+              el.style.height = newH + 'px';
+            }
+            if (edges.size > 0) renderEdges();
+          };
+          const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            if (edges.size > 0) renderEdges();
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        });
+      });
+
+      el.addEventListener('mousedown', () => focusPanel(id));
+
+      boardCanvas.appendChild(el);
+      panels.set(id, { el, x: pos.x, y: pos.y, format, title });
+      focusPanel(id);
+      return el;
+    }
+
+    function focusPanel(id) {
+      if (focusedPanel) {
+        const prev = panels.get(focusedPanel);
+        if (prev) prev.el.classList.remove('focused');
+      }
+      focusedPanel = id;
+      const p = panels.get(id);
+      if (p) p.el.classList.add('focused');
+    }
+
+    function closePanel(id) {
+      const p = panels.get(id);
+      if (p) {
+        p.el.remove();
+        panels.delete(id);
+      }
+    }
+
+    function getPanelBody(id) {
+      const p = panels.get(id);
+      return p ? p.el.querySelector('.panel-body') : null;
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // ===== EDGE / CONNECTION SYSTEM =====
+    const edges = new Map(); // id -> { from, to, label, color }
+    const edgesSvg = document.getElementById('edges-svg');
+
+    function addEdge(id, from, to, label, color) {
+      edges.set(id, { from, to, label, color: color || '#00d4ff' });
+      console.log('[edges] added:', id, from, '->', to, 'panels:', [...panels.keys()]);
+      renderEdges();
+    }
+
+    function removeEdge(id) {
+      edges.delete(id);
+      renderEdges();
+    }
+
+    function getPanelCenter(panelId) {
+      const p = panels.get(panelId);
+      if (!p) return null;
+      const el = p.el;
+      const x = parseInt(el.style.left) + el.offsetWidth / 2;
+      const y = parseInt(el.style.top) + el.offsetHeight / 2;
+      return { x, y, w: el.offsetWidth, h: el.offsetHeight, left: parseInt(el.style.left), top: parseInt(el.style.top) };
+    }
+
+    function getEdgePoints(fromRect, toRect) {
+      // Find the best connection points on panel borders
+      const fx = fromRect.left + fromRect.w / 2;
+      const fy = fromRect.top + fromRect.h / 2;
+      const tx = toRect.left + toRect.w / 2;
+      const ty = toRect.top + toRect.h / 2;
+
+      const dx = tx - fx;
+      const dy = ty - fy;
+
+      // Source point: exit from the edge closest to the target
+      let sx, sy, ex, ey;
+
+      if (Math.abs(dx) / fromRect.w > Math.abs(dy) / fromRect.h) {
+        // Horizontal connection
+        if (dx > 0) {
+          sx = fromRect.left + fromRect.w; sy = fy;
+          ex = toRect.left; ey = ty;
+        } else {
+          sx = fromRect.left; sy = fy;
+          ex = toRect.left + toRect.w; ey = ty;
+        }
+      } else {
+        // Vertical connection
+        if (dy > 0) {
+          sx = fx; sy = fromRect.top + fromRect.h;
+          ex = tx; ey = toRect.top;
+        } else {
+          sx = fx; sy = fromRect.top;
+          ex = tx; ey = toRect.top + toRect.h;
+        }
+      }
+
+      return { sx, sy, ex, ey };
+    }
+
+    function renderEdges() {
+      edgesSvg.innerHTML = '';
+
+      // Arrow marker definition
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = `
+        <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+          <polygon points="0 0, 10 4, 0 8" fill="#00d4ff" opacity="0.8" />
+        </marker>
+      `;
+      edgesSvg.appendChild(defs);
+
+      for (const [id, edge] of edges) {
+        const fromRect = getPanelCenter(edge.from);
+        const toRect = getPanelCenter(edge.to);
+        console.log('[edges] render:', id, 'from:', edge.from, fromRect, 'to:', edge.to, toRect);
+        if (!fromRect || !toRect) continue;
+
+        const { sx, sy, ex, ey } = getEdgePoints(fromRect, toRect);
+
+        // Bezier control points
+        const midX = (sx + ex) / 2;
+        const midY = (sy + ey) / 2;
+        const dx = ex - sx;
+        const dy = ey - sy;
+        const curvature = 0.3;
+        let cx1, cy1, cx2, cy2;
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          cx1 = sx + dx * curvature; cy1 = sy;
+          cx2 = ex - dx * curvature; cy2 = ey;
+        } else {
+          cx1 = sx; cy1 = sy + dy * curvature;
+          cx2 = ex; cy2 = ey - dy * curvature;
+        }
+
+        // Path
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${ex},${ey}`);
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        if (edge.color && edge.color !== 'var(--fg-accent)') {
+          path.style.stroke = edge.color;
+        }
+        edgesSvg.appendChild(path);
+
+        // Label
+        if (edge.label) {
+          const labelX = midX;
+          const labelY = midY;
+
+          // Background rect
+          const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          text.setAttribute('x', labelX);
+          text.setAttribute('y', labelY - 4);
+          text.setAttribute('text-anchor', 'middle');
+          text.textContent = edge.label;
+          if (edge.color && edge.color !== 'var(--fg-accent)') {
+            text.style.fill = edge.color;
+          }
+
+          // Measure text for background
+          edgesSvg.appendChild(text);
+          const bbox = text.getBBox();
+
+          const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          bg.setAttribute('x', bbox.x - 4);
+          bg.setAttribute('y', bbox.y - 2);
+          bg.setAttribute('width', bbox.width + 8);
+          bg.setAttribute('height', bbox.height + 4);
+          bg.setAttribute('rx', 2);
+          bg.classList.add('edge-label-bg');
+
+          edgesSvg.insertBefore(bg, text);
+        }
+      }
+    }
+
+    // Re-render edges when any panel is dragged — hook into drag events
+    const _origSetPanelPos = (id) => {
+      const p = panels.get(id);
+      if (p) { p.x = parseInt(p.el.style.left); p.y = parseInt(p.el.style.top); }
+      if (edges.size > 0) renderEdges();
+    };
+
+    // ===== WEBSOCKET =====
+    let reconnectDelay = 1000;
+
+    function connect() {
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+
+      ws.onopen = () => {
+        statusEl.classList.add('connected');
+        reconnectDelay = 1000;
+      };
+
+      ws.onclose = () => {
+        statusEl.classList.remove('connected');
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
+      };
+
+      ws.onerror = () => ws.close();
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'clear') handleClear(msg);
+          else if (msg.type === 'render') handleRender(msg);
+          else if (msg.type === 'connect') {
+            addEdge(msg.id || (msg.from + '-' + msg.to), msg.from, msg.to, msg.label, msg.color);
+          }
+          else if (msg.type === 'disconnect') {
+            removeEdge(msg.id || (msg.from + '-' + msg.to));
+          }
+        } catch (e) {
+          console.error('[visualizer] bad message:', e);
+        }
+      };
+    }
+
+    // ===== CLEAR =====
+    function handleClear(msg) {
+      // Scroll mode
+      scrollContent.innerHTML = '<div class="placeholder"><div class="logo">&#9701;</div><div class="text">awaiting signal</div></div>';
+      // Board mode — clear all panels and edges
+      panels.forEach((_, id) => closePanel(id));
+      edges.clear();
+      edgesSvg.innerHTML = '';
+      panelCounter = 0;
+      toolbarTitle.textContent = 'Claude Visualizer';
+      document.title = 'Claude Visualizer';
+    }
+
+    // ===== RENDER =====
+    async function handleRender(msg) {
+      const { content, format, title, append, panel: panelId, x: explicitX, y: explicitY, width: explicitW } = msg;
+
+      if (title) {
+        toolbarTitle.textContent = title;
+        document.title = title + ' — Claude Visualizer';
+      }
+
+      // Always render to Scroll mode
+      if (panelId) {
+        // Panel mode: each panel gets its own section in scroll view
+        let section = scrollContent.querySelector(`[data-scroll-panel="${panelId}"]`);
+        if (!section) {
+          // Remove placeholder if present
+          const ph = scrollContent.querySelector('.placeholder');
+          if (ph) ph.remove();
+          section = document.createElement('section');
+          section.dataset.scrollPanel = panelId;
+          section.className = 'rendered-content scroll-section';
+          if (title) {
+            section.style.borderTop = '1px solid var(--border-accent)';
+            section.style.marginTop = '2em';
+            section.style.paddingTop = '1.5em';
+          }
+          scrollContent.appendChild(section);
+        }
+        if (format === 'terminal') {
+          await renderTerminal(section, content, append);
+        } else if (format === 'html') {
+          renderHtml(section, content, append);
+        } else {
+          await renderMarkdown(section, content, append);
+        }
+      } else {
+        // No panel ID: replace/append as before
+        if (format === 'terminal') {
+          await renderTerminal(scrollContent, content, append);
+        } else if (format === 'html') {
+          renderHtml(scrollContent, content, append);
+        } else {
+          await renderMarkdown(scrollContent, content, append);
+        }
+      }
+
+      // Always render to Board mode (create/update panel)
+      const pid = panelId || 'panel-' + panelCounter;
+      let isNew = false;
+
+      if (!panels.has(pid)) {
+        createPanel(pid, title, format, explicitX, explicitY, explicitW);
+        panelCounter++;
+        isNew = true;
+      } else if (title) {
+        const p = panels.get(pid);
+        const titleEl = p.el.querySelector('.panel-title');
+        if (titleEl) titleEl.textContent = title;
+      }
+
+      const body = getPanelBody(pid);
+      if (!body) return;
+
+      if (format === 'terminal') {
+        await renderTerminal(body, content, append && !isNew);
+      } else if (format === 'html') {
+        renderHtml(body, content, append && !isNew);
+      } else {
+        await renderMarkdown(body, content, append && !isNew);
+      }
+
+      focusPanel(pid);
+    }
+
+    // ===== RENDER: HTML =====
+    function renderHtml(container, html, append) {
+      if (append) {
+        container.insertAdjacentHTML('beforeend', html);
+      } else {
+        container.innerHTML = html;
+      }
+      container.querySelectorAll('script:not([data-executed])').forEach(old => {
+        const s = document.createElement('script');
+        if (old.src) s.src = old.src;
+        else s.textContent = old.textContent;
+        s.dataset.executed = 'true';
+        old.replaceWith(s);
+      });
+    }
+
+    // ===== RENDER: MARKDOWN =====
+    async function renderMarkdown(container, md, append) {
+      const mermaidBlocks = [];
+      const processed = md.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
+        const id = 'mermaid-' + mermaidBlocks.length + '-' + Date.now();
+        mermaidBlocks.push({ id, code: code.trim() });
+        return `<div class="mermaid-container" id="${id}"></div>`;
+      });
+
+      const html = marked.parse(processed);
+
+      if (append) container.insertAdjacentHTML('beforeend', html);
+      else container.innerHTML = html;
+
+      // KaTeX
+      if (window.renderMathInElement) {
+        renderMathInElement(container, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true },
+          ],
+          throwOnError: false,
+        });
+      }
+
+      // Mermaid
+      if (mermaidBlocks.length > 0) {
+        let attempts = 0;
+        while (!window.__mermaidReady && attempts < 20) {
+          await new Promise(r => setTimeout(r, 100));
+          attempts++;
+        }
+        if (window.__mermaid) {
+          for (const { id, code } of mermaidBlocks) {
+            const el = document.getElementById(id);
+            if (el) {
+              try {
+                const { svg } = await window.__mermaid.render(id + '-svg', code);
+                el.innerHTML = svg;
+              } catch (e) {
+                el.innerHTML = '<pre style="color:var(--red);white-space:pre-wrap">Mermaid error: ' + e.message + '</pre>';
+              }
+            }
+          }
+        }
+      }
+
+      // Syntax highlighting
+      container.querySelectorAll('pre code').forEach(block => {
+        if (!block.dataset.highlighted) hljs.highlightElement(block);
+      });
+    }
+
+    // ===== RENDER: TERMINAL =====
+    async function renderTerminal(container, content, append) {
+      // If container doesn't have terminal styling in scroll mode, add it
+      if (!container.closest('.terminal-panel')) {
+        container.style.fontFamily = "'SF Mono', 'Fira Code', 'JetBrains Mono', monospace";
+        container.style.fontSize = '0.85rem';
+        container.style.lineHeight = '1.5';
+      }
+
+      const lines = content.split('\n');
+      const fragment = document.createDocumentFragment();
+
+      for (const line of lines) {
+        const div = document.createElement('div');
+        div.className = 'term-line';
+
+        if (line.startsWith('$ ') || line.startsWith('> ')) {
+          div.classList.add('term-cmd');
+          div.textContent = line.slice(2);
+        } else if (line.startsWith('ERROR:') || line.startsWith('error:') || line.startsWith('Error:')) {
+          div.classList.add('term-error');
+          div.textContent = line;
+        } else if (line.startsWith('OK:') || line.startsWith('PASS') || line.startsWith('✓') || line.startsWith('✔')) {
+          div.classList.add('term-success');
+          div.textContent = line;
+        } else if (line.startsWith('INFO:') || line.startsWith('---') || line.startsWith('===')) {
+          div.classList.add('term-info');
+          div.textContent = line;
+        } else if (line.startsWith('#') || line.trim() === '') {
+          div.classList.add('term-dim');
+          div.textContent = line;
+        } else {
+          div.classList.add('term-output');
+          div.textContent = line;
+        }
+
+        fragment.appendChild(div);
+      }
+
+      if (!append) container.innerHTML = '';
+      container.appendChild(fragment);
+
+      // Auto-scroll to bottom
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // ===== START =====
+    connect();
+  </script>
+</body>
+</html>
