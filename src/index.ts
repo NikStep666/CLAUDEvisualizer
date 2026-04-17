@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { publish, openBrowser } from "./server.ts";
+import { publish, openBrowser, waitForBoardState } from "./server.ts";
 import * as db from "./db.ts";
 import { initQdrant, upsert, semanticSearch } from "./qdrant.ts";
 
@@ -180,6 +180,96 @@ server.tool(
     publish({ type: "connect", from, to, label, color });
     return {
       content: [{ type: "text", text: `Edge: ${from} → ${to}${label ? ` [${label}]` : ""}` }],
+    };
+  }
+);
+
+server.tool(
+  "save_board",
+  "Save the current board state (all panels with positions + all edges) as a named snapshot. The browser sends back the current state including any manual repositioning.",
+  {
+    name: z.string().describe("Name for this board snapshot (e.g. 'SNN Robotics Architecture')"),
+    description: z.string().optional().describe("Optional description"),
+  },
+  async ({ name, description }) => {
+    // Ask browser for current state
+    publish({ type: "request_board_state", name, description });
+    try {
+      const state = await waitForBoardState();
+      const id = db.saveBoard(name, state.panels || [], state.edges || [], description);
+      return {
+        content: [{ type: "text", text: `Board saved as #${id}: "${name}" (${(state.panels || []).length} panels, ${(state.edges || []).length} edges)` }],
+      };
+    } catch {
+      return {
+        content: [{ type: "text", text: "Failed to save board — browser did not respond. Is the viewer tab open?" }],
+      };
+    }
+  }
+);
+
+server.tool(
+  "load_board",
+  "Load a previously saved board snapshot by ID. Clears the current view and restores all panels and edges.",
+  {
+    id: z.number().describe("Board ID from list_boards"),
+  },
+  async ({ id }) => {
+    const board = db.getBoard(id);
+    if (!board) {
+      return { content: [{ type: "text", text: `Board #${id} not found.` }] };
+    }
+
+    const panels = JSON.parse(board.panels);
+    const edges = JSON.parse(board.edges);
+
+    // Clear and rebuild
+    publish({ type: "clear" });
+
+    // Small delay then send panels and edges
+    await new Promise(r => setTimeout(r, 100));
+
+    for (const p of panels) {
+      publish({
+        type: "render",
+        content: p.content,
+        format: p.format,
+        title: p.title,
+        panel: p.panel,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        append: false,
+      });
+    }
+
+    for (const e of edges) {
+      publish({ type: "connect", from: e.from, to: e.to, label: e.label, color: e.color });
+    }
+
+    openBrowser();
+    return {
+      content: [{ type: "text", text: `Board "${board.name}" loaded (${panels.length} panels, ${edges.length} edges)` }],
+    };
+  }
+);
+
+server.tool(
+  "list_boards",
+  "List all saved board snapshots.",
+  {
+    limit: z.number().default(10).describe("Max results"),
+  },
+  async ({ limit }) => {
+    const boards = db.listBoards(limit);
+    if (boards.length === 0) {
+      return { content: [{ type: "text", text: "No boards saved yet." }] };
+    }
+    const text = boards.map((b, i) =>
+      `${i + 1}. [#${b.id}] ${b.name}${b.description ? ' — ' + b.description : ''} (${b.created_at})`
+    ).join("\n");
+    return {
+      content: [{ type: "text", text: `${boards.length} boards:\n\n${text}` }],
     };
   }
 );

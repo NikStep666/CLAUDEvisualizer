@@ -555,6 +555,11 @@
       <button class="toolbar-btn" onclick="zoomBy(0.15)">+</button>
       <button class="toolbar-btn" onclick="resetView()">Fit</button>
     </div>
+
+    <div class="toolbar-group">
+      <button class="toolbar-btn" onclick="saveBoardUI()" title="Save current board">Save</button>
+      <button class="toolbar-btn" onclick="loadBoardUI()" title="Load saved board">Load</button>
+    </div>
   </div>
 
   <!-- Scroll Mode -->
@@ -1026,6 +1031,7 @@
       ws.onopen = () => {
         statusEl.classList.add('connected');
         reconnectDelay = 1000;
+        activeWs = ws;
       };
 
       ws.onclose = () => {
@@ -1046,6 +1052,11 @@
           }
           else if (msg.type === 'disconnect') {
             removeEdge(msg.id || (msg.from + '-' + msg.to));
+          }
+          else if (msg.type === 'request_board_state') {
+            // Server asks for current board state (triggered by save_board tool)
+            const state = collectBoardState();
+            ws.send(JSON.stringify({ type: 'board_state', ...state }));
           }
         } catch (e) {
           console.error('[visualizer] bad message:', e);
@@ -1254,6 +1265,47 @@
 
       // Auto-scroll to bottom
       container.scrollTop = container.scrollHeight;
+    }
+
+    // ===== BOARD SAVE/LOAD =====
+    let activeWs = null;
+
+    function collectBoardState() {
+      const panelData = [];
+      for (const [id, p] of panels) {
+        const body = p.el.querySelector('.panel-body');
+        panelData.push({
+          panel: id,
+          title: p.title || '',
+          format: p.format || 'markdown',
+          content: body ? body.innerHTML : '',
+          x: parseInt(p.el.style.left) || 0,
+          y: parseInt(p.el.style.top) || 0,
+          width: p.el.offsetWidth || 700,
+          height: p.el.offsetHeight || 450,
+        });
+      }
+      const edgeData = [];
+      for (const [, e] of edges) {
+        edgeData.push({ from: e.from, to: e.to, label: e.label, color: e.color });
+      }
+      return { panels: panelData, edges: edgeData };
+    }
+
+    function saveBoardUI() {
+      const name = prompt('Board-Name:');
+      if (!name) return;
+      const state = collectBoardState();
+      if (activeWs && activeWs.readyState === 1) {
+        activeWs.send(JSON.stringify({ type: 'board_state', ...state, name }));
+      }
+    }
+
+    function loadBoardUI() {
+      const id = prompt('Board-ID (aus list_boards):');
+      if (!id) return;
+      // Loading happens via MCP — inform user
+      toolbarTitle.textContent = 'Lade Board #' + id + '...';
     }
 
     // ===== START =====

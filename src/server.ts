@@ -4,6 +4,15 @@ import { join } from "path";
 const PORT = parseInt(process.env.VISUALIZER_PORT || "7331");
 
 let browserOpened = false;
+
+// Callback for board state responses from browser
+let boardStateResolver: ((data: any) => void) | null = null;
+export function waitForBoardState(timeout = 5000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    boardStateResolver = resolve;
+    setTimeout(() => { boardStateResolver = null; reject(new Error("timeout")); }, timeout);
+  });
+}
 let contentBuffer = "";
 let lastFormat: "markdown" | "html" | "terminal" = "markdown";
 let lastTitle = "";
@@ -36,7 +45,19 @@ export type ConnectMessage = {
   id?: string;
 };
 
-export type WsMessage = RenderMessage | ClearMessage | ConnectMessage;
+export type SaveBoardRequest = {
+  type: "request_board_state";
+  name: string;
+  description?: string;
+};
+
+export type LoadBoardMessage = {
+  type: "load_board";
+  panels: Array<{ panel: string; title: string; format: string; content: string; x: number; y: number; width: number; height: number }>;
+  edges: Array<{ from: string; to: string; label?: string; color?: string }>;
+};
+
+export type WsMessage = RenderMessage | ClearMessage | ConnectMessage | SaveBoardRequest | LoadBoardMessage;
 
 export function publish(message: WsMessage) {
   if (message.type === "render") {
@@ -110,7 +131,15 @@ const server = Bun.serve<{}>({
     close(ws: ServerWebSocket<{}>) {
       ws.unsubscribe("viz");
     },
-    message() {},
+    message(_ws, msg) {
+      try {
+        const data = JSON.parse(String(msg));
+        if (data.type === "board_state" && boardStateResolver) {
+          boardStateResolver(data);
+          boardStateResolver = null;
+        }
+      } catch {}
+    },
   },
 });
 

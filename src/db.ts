@@ -160,4 +160,69 @@ export function count(): number {
   return (db.prepare("SELECT COUNT(*) as c FROM visualizations").get() as { c: number }).c;
 }
 
-console.error(`[visualizer] database at ${DB_PATH} (${count()} records)`);
+// --- BOARDS ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    panels TEXT NOT NULL,
+    edges TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+export type Board = {
+  id: number;
+  name: string;
+  description: string | null;
+  panels: string;
+  edges: string;
+  created_at: string;
+};
+
+export type BoardPanel = {
+  panel: string;
+  title: string;
+  format: string;
+  content: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type BoardEdge = {
+  from: string;
+  to: string;
+  label?: string;
+  color?: string;
+};
+
+export function saveBoard(
+  name: string,
+  panels: BoardPanel[],
+  edges: BoardEdge[],
+  description?: string,
+): number {
+  const result = db.prepare(
+    "INSERT INTO boards (name, description, panels, edges) VALUES (?, ?, ?, ?)"
+  ).run(name, description || null, JSON.stringify(panels), JSON.stringify(edges));
+  return Number(result.lastInsertRowid);
+}
+
+export function getBoard(id: number): Board | null {
+  return db.prepare("SELECT * FROM boards WHERE id = ?").get(id) as Board | null;
+}
+
+export function listBoards(limit = 20): Board[] {
+  return db.prepare(
+    "SELECT id, name, description, created_at FROM boards ORDER BY created_at DESC LIMIT ?"
+  ).all(limit) as Board[];
+}
+
+export function boardCount(): number {
+  return (db.prepare("SELECT COUNT(*) as c FROM boards").get() as { c: number }).c;
+}
+
+console.error(`[visualizer] database at ${DB_PATH} (${count()} visualizations, ${boardCount()} boards)`);
