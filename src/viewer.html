@@ -1293,19 +1293,91 @@
     }
 
     function saveBoardUI() {
-      const name = prompt('Board-Name:');
+      // Create inline save dialog
+      const existing = document.getElementById('board-dialog');
+      if (existing) existing.remove();
+
+      const dialog = document.createElement('div');
+      dialog.id = 'board-dialog';
+      dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border-accent);border-radius:8px;padding:24px;z-index:2000;min-width:360px;font-family:var(--font-mono);box-shadow:0 8px 40px rgba(0,0,0,0.6),0 0 20px rgba(0,212,255,0.1);';
+      dialog.innerHTML = `
+        <div style="color:var(--fg-accent);font-size:0.8rem;margin-bottom:16px;letter-spacing:0.05em;">SAVE BOARD</div>
+        <input id="board-name-input" type="text" placeholder="Board name..." style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border-accent);border-radius:4px;color:var(--fg);font-family:var(--font-mono);font-size:0.85rem;outline:none;margin-bottom:12px;" autofocus>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button onclick="document.getElementById('board-dialog').remove()" style="padding:6px 16px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--fg-muted);cursor:pointer;font-family:var(--font-mono);font-size:0.75rem;">Cancel</button>
+          <button onclick="doSaveBoard()" style="padding:6px 16px;background:var(--fg-accent-dim);border:1px solid var(--border-accent);border-radius:4px;color:var(--fg-accent);cursor:pointer;font-family:var(--font-mono);font-size:0.75rem;">Save</button>
+        </div>
+      `;
+      document.body.appendChild(dialog);
+      document.getElementById('board-name-input').focus();
+      document.getElementById('board-name-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSaveBoard();
+        if (e.key === 'Escape') dialog.remove();
+      });
+    }
+
+    function doSaveBoard() {
+      const input = document.getElementById('board-name-input');
+      const name = input?.value?.trim();
       if (!name) return;
+      document.getElementById('board-dialog')?.remove();
+
       const state = collectBoardState();
       if (activeWs && activeWs.readyState === 1) {
         activeWs.send(JSON.stringify({ type: 'board_state', ...state, name }));
+        toolbarTitle.textContent = 'Saved: ' + name;
       }
     }
 
-    function loadBoardUI() {
-      const id = prompt('Board-ID (aus list_boards):');
-      if (!id) return;
-      // Loading happens via MCP — inform user
-      toolbarTitle.textContent = 'Lade Board #' + id + '...';
+    async function loadBoardUI() {
+      const existing = document.getElementById('board-dialog');
+      if (existing) existing.remove();
+
+      // Fetch board list from REST API
+      let boards = [];
+      try {
+        const resp = await fetch('/api/boards');
+        boards = await resp.json();
+      } catch { }
+
+      const dialog = document.createElement('div');
+      dialog.id = 'board-dialog';
+      dialog.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg-surface);border:1px solid var(--border-accent);border-radius:8px;padding:24px;z-index:2000;min-width:400px;max-height:500px;font-family:var(--font-mono);box-shadow:0 8px 40px rgba(0,0,0,0.6),0 0 20px rgba(0,212,255,0.1);';
+
+      if (boards.length === 0) {
+        dialog.innerHTML = `
+          <div style="color:var(--fg-accent);font-size:0.8rem;margin-bottom:16px;letter-spacing:0.05em;">LOAD BOARD</div>
+          <div style="color:var(--fg-muted);font-size:0.85rem;padding:20px 0;">No saved boards yet. Use Save to create one.</div>
+          <div style="display:flex;justify-content:flex-end;">
+            <button onclick="document.getElementById('board-dialog').remove()" style="padding:6px 16px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--fg-muted);cursor:pointer;font-family:var(--font-mono);font-size:0.75rem;">Close</button>
+          </div>
+        `;
+      } else {
+        const listHtml = boards.map(b => `
+          <div onclick="doLoadBoard(${b.id})" style="padding:10px 12px;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--border-accent)';this.style.background='var(--fg-accent-dim)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='none'">
+            <div style="color:var(--fg);font-size:0.85rem;font-weight:500;">${b.name}</div>
+            <div style="color:var(--fg-dim);font-size:0.7rem;margin-top:4px;">#${b.id} — ${b.created_at}${b.description ? ' — ' + b.description : ''}</div>
+          </div>
+        `).join('');
+
+        dialog.innerHTML = `
+          <div style="color:var(--fg-accent);font-size:0.8rem;margin-bottom:16px;letter-spacing:0.05em;">LOAD BOARD</div>
+          <div style="max-height:350px;overflow-y:auto;">${listHtml}</div>
+          <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+            <button onclick="document.getElementById('board-dialog').remove()" style="padding:6px 16px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--fg-muted);cursor:pointer;font-family:var(--font-mono);font-size:0.75rem;">Close</button>
+          </div>
+        `;
+      }
+      document.body.appendChild(dialog);
+    }
+
+    function doLoadBoard(id) {
+      document.getElementById('board-dialog')?.remove();
+      toolbarTitle.textContent = 'Loading board #' + id + '...';
+      // Send load request to server via WebSocket
+      if (activeWs && activeWs.readyState === 1) {
+        activeWs.send(JSON.stringify({ type: 'load_board_request', id }));
+      }
     }
 
     // ===== START =====

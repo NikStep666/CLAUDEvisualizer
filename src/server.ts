@@ -18,6 +18,8 @@ let lastFormat: "markdown" | "html" | "terminal" = "markdown";
 let lastTitle = "";
 const edgeCache: ConnectMessage[] = [];
 
+import * as db from "./db.ts";
+
 const viewerHtml = await Bun.file(join(import.meta.dir, "viewer.html")).text();
 
 export type RenderMessage = {
@@ -105,6 +107,13 @@ const server = Bun.serve<{}>({
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    if (url.pathname === "/api/boards") {
+      const boards = db.listBoards(50);
+      return new Response(JSON.stringify(boards), {
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
     return new Response(viewerHtml, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
@@ -137,6 +146,27 @@ const server = Bun.serve<{}>({
         if (data.type === "board_state" && boardStateResolver) {
           boardStateResolver(data);
           boardStateResolver = null;
+        } else if (data.type === "board_state" && data.name) {
+          // Direct save from browser UI (Save button)
+          const id = db.saveBoard(data.name, data.panels || [], data.edges || [], data.description);
+          console.error(`[visualizer] board saved: #${id} "${data.name}"`);
+        } else if (data.type === "load_board_request" && data.id) {
+          // Load request from browser UI
+          const board = db.getBoard(data.id);
+          if (board) {
+            const panels = JSON.parse(board.panels);
+            const edges = JSON.parse(board.edges);
+            // Clear first
+            publish({ type: "clear" });
+            setTimeout(() => {
+              for (const p of panels) {
+                publish({ type: "render", content: p.content, format: p.format, title: p.title, panel: p.panel, x: p.x, y: p.y, width: p.width, append: false });
+              }
+              for (const e of edges) {
+                publish({ type: "connect", from: e.from, to: e.to, label: e.label, color: e.color });
+              }
+            }, 100);
+          }
         }
       } catch {}
     },
