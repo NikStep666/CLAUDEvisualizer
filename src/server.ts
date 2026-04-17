@@ -148,8 +148,8 @@ const server = Bun.serve<{}>({
           boardStateResolver = null;
         } else if (data.type === "board_state" && data.name) {
           // Direct save from browser UI (Save button)
-          const id = db.saveBoard(data.name, data.panels || [], data.edges || [], data.description);
-          console.error(`[visualizer] board saved: #${id} "${data.name}"`);
+          const id = db.saveBoard(data.name, data.panels || [], data.edges || [], data.description, data.thumbnail);
+          console.error(`[visualizer] board saved: #${id} "${data.name}" (thumbnail: ${data.thumbnail ? 'yes' : 'no'})`);
         } else if (data.type === "load_board_request" && data.id) {
           // Load request from browser UI
           const board = db.getBoard(data.id);

@@ -23,6 +23,9 @@
   <!-- D3 -->
   <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 
+  <!-- html2canvas for board screenshots -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
   <!-- Google Fonts: JetBrains Mono for tech, Inter for body -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1316,15 +1319,35 @@
       });
     }
 
-    function doSaveBoard() {
+    async function doSaveBoard() {
       const input = document.getElementById('board-name-input');
       const name = input?.value?.trim();
       if (!name) return;
-      document.getElementById('board-dialog')?.remove();
+
+      const btn = document.querySelector('#board-dialog button:last-child');
+      if (btn) { btn.textContent = 'Capturing...'; btn.disabled = true; }
 
       const state = collectBoardState();
+
+      // Capture screenshot of board or scroll content
+      let thumbnail = null;
+      try {
+        const target = currentMode === 'board' ? boardCanvas : scrollContent;
+        const canvas = await html2canvas(target, {
+          backgroundColor: '#06090f',
+          scale: 0.4,
+          logging: false,
+          useCORS: true,
+        });
+        thumbnail = canvas.toDataURL('image/webp', 0.6);
+      } catch (e) {
+        console.error('[save] screenshot failed:', e);
+      }
+
+      document.getElementById('board-dialog')?.remove();
+
       if (activeWs && activeWs.readyState === 1) {
-        activeWs.send(JSON.stringify({ type: 'board_state', ...state, name }));
+        activeWs.send(JSON.stringify({ type: 'board_state', ...state, name, thumbnail }));
         toolbarTitle.textContent = 'Saved: ' + name;
       }
     }
@@ -1354,9 +1377,13 @@
         `;
       } else {
         const listHtml = boards.map(b => `
-          <div onclick="doLoadBoard(${b.id})" style="padding:10px 12px;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--border-accent)';this.style.background='var(--fg-accent-dim)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='none'">
-            <div style="color:var(--fg);font-size:0.85rem;font-weight:500;">${b.name}</div>
-            <div style="color:var(--fg-dim);font-size:0.7rem;margin-top:4px;">#${b.id} — ${b.created_at}${b.description ? ' — ' + b.description : ''}</div>
+          <div onclick="doLoadBoard(${b.id})" style="display:flex;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;cursor:pointer;transition:all 0.15s;align-items:center;" onmouseover="this.style.borderColor='var(--border-accent)';this.style.background='var(--fg-accent-dim)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='none'">
+            ${b.thumbnail ? `<img src="${b.thumbnail}" style="width:120px;height:70px;object-fit:cover;border-radius:3px;border:1px solid var(--border);flex-shrink:0;">` : `<div style="width:120px;height:70px;background:var(--bg);border-radius:3px;border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--fg-dim);font-size:0.6rem;">no preview</div>`}
+            <div style="flex:1;min-width:0;">
+              <div style="color:var(--fg);font-size:0.85rem;font-weight:500;">${b.name}</div>
+              <div style="color:var(--fg-dim);font-size:0.7rem;margin-top:4px;">#${b.id} — ${b.created_at}</div>
+              ${b.description ? `<div style="color:var(--fg-muted);font-size:0.7rem;margin-top:2px;">${b.description}</div>` : ''}
+            </div>
           </div>
         `).join('');
 

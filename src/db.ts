@@ -168,9 +168,12 @@ db.exec(`
     description TEXT,
     panels TEXT NOT NULL,
     edges TEXT NOT NULL DEFAULT '[]',
+    thumbnail TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 `);
+// Migration: add thumbnail column if missing
+try { db.exec("ALTER TABLE boards ADD COLUMN thumbnail TEXT"); } catch {}
 
 export type Board = {
   id: number;
@@ -178,6 +181,7 @@ export type Board = {
   description: string | null;
   panels: string;
   edges: string;
+  thumbnail: string | null;
   created_at: string;
 };
 
@@ -204,10 +208,11 @@ export function saveBoard(
   panels: BoardPanel[],
   edges: BoardEdge[],
   description?: string,
+  thumbnail?: string,
 ): number {
   const result = db.prepare(
-    "INSERT INTO boards (name, description, panels, edges) VALUES (?, ?, ?, ?)"
-  ).run(name, description || null, JSON.stringify(panels), JSON.stringify(edges));
+    "INSERT INTO boards (name, description, panels, edges, thumbnail) VALUES (?, ?, ?, ?, ?)"
+  ).run(name, description || null, JSON.stringify(panels), JSON.stringify(edges), thumbnail || null);
   return Number(result.lastInsertRowid);
 }
 
@@ -217,7 +222,7 @@ export function getBoard(id: number): Board | null {
 
 export function listBoards(limit = 20): Board[] {
   return db.prepare(
-    "SELECT id, name, description, created_at FROM boards ORDER BY created_at DESC LIMIT ?"
+    "SELECT id, name, description, thumbnail, created_at FROM boards ORDER BY created_at DESC LIMIT ?"
   ).all(limit) as Board[];
 }
 

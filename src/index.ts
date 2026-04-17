@@ -196,7 +196,7 @@ server.tool(
     publish({ type: "request_board_state", name, description });
     try {
       const state = await waitForBoardState();
-      const id = db.saveBoard(name, state.panels || [], state.edges || [], description);
+      const id = db.saveBoard(name, state.panels || [], state.edges || [], description, state.thumbnail);
       return {
         content: [{ type: "text", text: `Board saved as #${id}: "${name}" (${(state.panels || []).length} panels, ${(state.edges || []).length} edges)` }],
       };
