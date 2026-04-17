@@ -1174,30 +1174,52 @@
 
     // ===== RENDER: MARKDOWN =====
     async function renderMarkdown(container, md, append) {
+      // 1. Protect math blocks from marked.js (it destroys backslashes)
+      const mathBlocks = [];
+      let protected_ = md.replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => {
+        const idx = mathBlocks.length;
+        mathBlocks.push({ math: math.trim(), display: true });
+        return `<div class="math-placeholder" data-math-idx="${idx}"></div>`;
+      });
+      protected_ = protected_.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+        const idx = mathBlocks.length;
+        mathBlocks.push({ math: math.trim(), display: false });
+        return `<span class="math-placeholder" data-math-idx="${idx}"></span>`;
+      });
+
+      // 2. Protect mermaid blocks
       const mermaidBlocks = [];
-      const processed = md.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
+      protected_ = protected_.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
         const id = 'mermaid-' + mermaidBlocks.length + '-' + Date.now();
         mermaidBlocks.push({ id, code: code.trim() });
         return `<div class="mermaid-container" id="${id}"></div>`;
       });
 
-      const html = marked.parse(processed);
+      // 3. Parse markdown (safe now — no math/mermaid to mangle)
+      const html = marked.parse(protected_);
 
       if (append) container.insertAdjacentHTML('beforeend', html);
       else container.innerHTML = html;
 
-      // KaTeX
-      if (window.renderMathInElement) {
-        renderMathInElement(container, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false },
-            { left: '\\(', right: '\\)', display: false },
-            { left: '\\[', right: '\\]', display: true },
-          ],
-          throwOnError: false,
-        });
-      }
+      // 4. Restore math blocks and render with KaTeX
+      container.querySelectorAll('.math-placeholder').forEach(el => {
+        const idx = parseInt(el.dataset.mathIdx);
+        const block = mathBlocks[idx];
+        if (!block) return;
+        try {
+          const rendered = katex.renderToString(block.math, {
+            displayMode: block.display,
+            throwOnError: false,
+          });
+          if (block.display) {
+            el.outerHTML = `<div class="katex-display">${rendered}</div>`;
+          } else {
+            el.outerHTML = rendered;
+          }
+        } catch (e) {
+          el.outerHTML = `<code style="color:var(--red);">${block.math}</code>`;
+        }
+      });
 
       // Mermaid
       if (mermaidBlocks.length > 0) {
